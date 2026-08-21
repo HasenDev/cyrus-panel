@@ -19,7 +19,7 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 source ~/.bashrc
 nvm install 24.19.0
 nvm use 24.19.0
-```
+````
 
 ### Or install using your Linux distribution
 
@@ -54,13 +54,52 @@ cd cyrus-panel
 npm install
 ```
 
-Build the frontend:
+### Initialize the frontend
+
+Cyrus Panel uses the **Cyrus Frontend** as a Git submodule. After cloning the repository, initialize and download the frontend submodule:
+
+```bash
+git submodule update --init --recursive
+```
+
+> **Important:** The frontend is required to build Cyrus Panel. Make sure you run the command above before running `npm run build`.
+
+### Build Cyrus Panel
+
+Build the frontend and prepare it for the API server:
 
 ```bash
 npm run build
 ```
 
-This builds the Next.js frontend and copies the generated files from `./frontend/out` to `./src/frontend`.
+This builds the Next.js frontend from the `frontend` submodule and copies the generated static files from:
+
+```text
+./frontend/out
+```
+
+to:
+
+```text
+./src/frontend
+```
+
+### Updating the frontend
+
+If you already have Cyrus Panel installed and want to update the frontend submodule to the version referenced by the panel repository, run:
+
+```bash
+git pull
+git submodule update --init --recursive
+```
+
+Then rebuild Cyrus Panel:
+
+```bash
+npm run build
+```
+
+> **Note:** `git submodule update --init --recursive` checks out the exact frontend commit referenced by the Cyrus Panel repository. This ensures that the frontend version matches the panel version.
 
 Once the build is complete, start Cyrus Panel:
 
@@ -76,10 +115,10 @@ npm run dev
 
 ## Links
 
-* **Website:** https://cyrus.admibot.xyz
-* **Documentation:** https://cyrus.admibot.xyz/docs
-* **Bug Reports:** https://cyrus.admibot.xyz/bugs
-* **Support Server:** https://discord.gg/3yuMkSnrFd
+* **Website:** [https://cyrus.admibot.xyz](https://cyrus.admibot.xyz)
+* **Documentation:** [https://cyrus.admibot.xyz/docs](https://cyrus.admibot.xyz/docs)
+* **Bug Reports:** [https://cyrus.admibot.xyz/bugs](https://cyrus.admibot.xyz/bugs)
+* **Support Server:** [https://discord.gg/3yuMkSnrFd](https://discord.gg/3yuMkSnrFd)
 
 ## License
 
