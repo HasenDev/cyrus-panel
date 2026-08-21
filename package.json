@@ -1,11 +1,13 @@
 {
-  "name": "cyrus-backend",
+  "name": "cyrus-panel",
   "version": "1.0.0",
-  "description": "Cyrus Panel Backend.",
+  "description": "A modern, open-source server management panel for managing servers, nodes, containers, resources, and infrastructure.",
   "main": "src/index.js",
   "type": "commonjs",
   "scripts": {
     "dev": "NODE_ENV=development node src/index.js",
+    "build:frontend": "cd frontend && npm install && npm run build && cd .. && rm -rf src/frontend && mkdir -p src/frontend && cp -r frontend/out/. src/frontend/",
+    "build": "npm run build:frontend",
     "start": "NODE_ENV=production node src/index.js"
   },
   "dependencies": {
