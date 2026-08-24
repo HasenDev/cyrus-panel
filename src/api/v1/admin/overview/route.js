@@ -2,6 +2,7 @@ const { getDB } = require('../../../../lib/db');
 const { authenticate } = require('../../../../lib/auth');
 const { getPermissions } = require('../../../../lib/getPermissions');
 const { checkRateLimit } = require('../../../../lib/rateLimit');
+const { version } = require('../../../../../package.json');
 
 module.exports = {
     GET: async (req, reply) => {
@@ -26,7 +27,7 @@ module.exports = {
             const serversCount = await db.collection('servers').countDocuments({});
 
             return reply.status(200).send({
-                apiVersion: '1.0.1',
+                apiVersion: version,
                 usersCount: usersCount,
                 serversCount: serversCount
             });
