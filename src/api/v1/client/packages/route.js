@@ -130,11 +130,17 @@ module.exports = {
         try {
             await authenticate(req, reply);
             if (reply.sent) return;
+
+            if (checkRateLimit(reply, req.userId, 'CLIENT_PACKAGES_DEPLOY_COOLDOWN', 1, 2000)) return;
             if (checkRateLimit(reply, req.userId, 'CLIENT_PACKAGES_DEPLOY', 15, 60000)) return;
 
             const db = getDB();
             const user = await db.collection('users').findOne({ _id: req.userId });
             if (!user) return reply.status(404).send({ error: 'User not found.' });
+
+            if (!user.emailVerified) {
+                return reply.status(403).send({ error: 'Please verify your email address before deploying servers.' });
+            }
 
             const {
                 packageId,
