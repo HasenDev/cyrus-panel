@@ -1,3 +1,4 @@
+const net = require('net');
 const { getDB } = require('../../../../../../lib/db');
 const { authenticate } = require('../../../../../../lib/auth');
 const { getPermissions } = require('../../../../../../lib/getPermissions');
@@ -78,6 +79,19 @@ module.exports = {
                 return reply.status(400).send({ error: 'Node ID, IP address, and Ports input are required.' });
             }
 
+            const cleanIp = String(ip).trim();
+            if (net.isIP(cleanIp) === 0) {
+                return reply.status(400).send({
+                    error: 'Invalid IP address. Please enter a valid IPv4 or IPv6 address.'
+                });
+            }
+
+            if (cleanIp === '172.0.0.1') {
+                return reply.status(400).send({
+                    error: '172.0.0.1 is not a valid Cyrus Docker network address. If you are using the default Cyrus Docker network, use 172.19.0.1 instead.'
+                });
+            }
+
             const node = await db.collection('nodes').findOne({ id: nodeId });
             if (!node) return reply.status(404).send({ error: 'Target node not found.' });
 
@@ -106,7 +120,7 @@ module.exports = {
                 return reply.status(400).send({ error: 'Limit exceeded: You can only create up to 100 allocations per request.' });
             }
 
-            const existing = await db.collection('allocations').find({ nodeId, ip: ip.trim() }).toArray();
+            const existing = await db.collection('allocations').find({ nodeId, ip: cleanIp }).toArray();
             const existingPorts = new Set(existing.map(a => a.port));
 
             const toInsert = [];
@@ -115,7 +129,7 @@ module.exports = {
                     toInsert.push({
                         id: generateAllocId(),
                         nodeId,
-                        ip: ip.trim(),
+                        ip: cleanIp,
                         port,
                         assignedServerId: null,
                         createdAt: new Date().toISOString()
