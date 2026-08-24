@@ -74,7 +74,7 @@ module.exports = {
                 return_url: returnUrl,
                 order_id: orderId,
                 description: `Purchase ${creditsToAward.toLocaleString()} Credits`,
-                sandbox: true
+                sandbox: false
             };
 
             const oxaRes = await fetch(
