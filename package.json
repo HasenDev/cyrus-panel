@@ -1,6 +1,6 @@
 {
   "name": "cyrus-panel",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "A modern, open-source server management panel for managing servers, nodes, containers, resources, and infrastructure.",
   "main": "src/index.js",
   "type": "commonjs",
