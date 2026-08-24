@@ -1,8 +1,41 @@
+const fs = require('fs');
+const path = require('path');
 const crypto = require('crypto');
 const { getDB } = require('../../../../../../lib/db');
 const { authenticate } = require('../../../../../../lib/auth');
 const { getPermissions } = require('../../../../../../lib/getPermissions');
 const { checkRateLimit } = require('../../../../../../lib/rateLimit');
+
+const ENV_PATH = path.resolve(__dirname, '../../../../../../../.env');
+
+function readEnvFile() {
+    const targetPath = fs.existsSync(ENV_PATH) ? ENV_PATH : path.resolve(process.cwd(), '.env');
+    if (!fs.existsSync(targetPath)) {
+        return {};
+    }
+    try {
+        const content = fs.readFileSync(targetPath, 'utf8');
+        const envObj = {};
+        content.split(/\r?\n/).forEach(line => {
+            const trimmed = line.trim();
+            if (trimmed && !trimmed.startsWith('#')) {
+                const eqIdx = trimmed.indexOf('=');
+                if (eqIdx !== -1) {
+                    const key = trimmed.substring(0, eqIdx).trim();
+                    let val = trimmed.substring(eqIdx + 1).trim();
+                    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+                        val = val.slice(1, -1);
+                    }
+                    envObj[key] = val;
+                }
+            }
+        });
+        return envObj;
+    } catch (err) {
+        console.error('[AutoConfig] Error reading .env file:', err);
+        return {};
+    }
+}
 
 module.exports = {
     POST: async (req, reply) => {
@@ -37,7 +70,13 @@ module.exports = {
                 createdAt: new Date().toISOString()
             });
 
-            const command = `sudo cyrus-daemon configure --panel-url https://${req.headers.host} --token ${deployToken}`;
+            const env = readEnvFile();
+            let panelUrl = env.API_URL ? env.API_URL.trim().replace(/\/$/, '') : (req.headers.host ? `https://${req.headers.host}` : 'http://localhost');
+            if (!/^https?:\/\//i.test(panelUrl)) {
+                panelUrl = `https://${panelUrl}`;
+            }
+
+            const command = `sudo cyrus-daemon configure --panel-url ${panelUrl} --token ${deployToken}`;
 
             return reply.status(200).send({
                 success: true,
