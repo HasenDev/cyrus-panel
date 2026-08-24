@@ -4,6 +4,49 @@ const crypto = require('crypto');
 const dotenv = require('dotenv');
 const chalk = require('chalk');
 const { MongoClient } = require('mongodb');
+
+let projectAuth = null;
+const potentialPaths = [
+    './lib/auth',
+    '../lib/auth',
+    '../../lib/auth',
+    '../../../lib/auth',
+    '../../../../lib/auth',
+    './src/lib/auth',
+    './lib/auth.js'
+];
+
+for (const p of potentialPaths) {
+    try {
+        const mod = require(p);
+        if (mod && typeof mod.hashPassword === 'function') {
+            projectAuth = mod;
+            break;
+        }
+    } catch {}
+}
+
+async function hashPassword(password) {
+    if (projectAuth && typeof projectAuth.hashPassword === 'function') {
+        return await projectAuth.hashPassword(password);
+    }
+    try {
+        const bcrypt = require('bcrypt');
+        return await bcrypt.hash(password, 10);
+    } catch {}
+    try {
+        const bcryptjs = require('bcryptjs');
+        return await bcryptjs.hash(password, 10);
+    } catch {}
+    return new Promise((resolve, reject) => {
+        const salt = crypto.randomBytes(16).toString('hex');
+        crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+            if (err) return reject(err);
+            resolve(`${salt}:${derivedKey.toString('hex')}`);
+        });
+    });
+}
+
 function createPromptInterface() {
     return readline.createInterface({
         input: process.stdin,
@@ -39,6 +82,7 @@ async function askValidated(rl, query, defaultValue, validator) {
         console.log(chalk.red(`  └─ ✖ ${error}`));
     }
 }
+
 function createSpinner(spinnerText) {
     const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
     let i = 0;
@@ -82,7 +126,7 @@ const verifyMongoConnection = async (uri) => {
         });
 
         await client.connect();
-        await client.db().admin().ping();
+        await client.db('CyrusPanel').admin().ping();
         await client.close();
         return { success: true };
     } catch (err) {
@@ -96,14 +140,14 @@ const verifyMongoConnection = async (uri) => {
 };
 
 function displaySection(title) {
-    console.log(`\n${chalk.bgCyan.black.bold(` ${title} `)}`);
-    console.log(chalk.gray('─'.repeat(60)));
+    console.log(`\n${chalk.bgCyan.white.bold(` ${title} `)}`);
+    console.log(chalk.white('─'.repeat(60)));
 }
 
 function displayNotice(title, message) {
-    console.log(`\n${chalk.bgYellow.black.bold(` ${title} `)}`);
+    console.log(`\n${chalk.bgYellow.white.bold(` ${title} `)}`);
     console.log(chalk.yellow(message));
-    console.log(chalk.gray('─'.repeat(60)));
+    console.log(chalk.white('─'.repeat(60)));
 }
 
 async function runInteractiveSetup(envPath) {
@@ -137,13 +181,14 @@ async function runInteractiveSetup(envPath) {
             `• Cloudflare Tunnels (Zero Trust): Forward traffic directly to http://${bindIp}:${port} with automatic SSL & DDoS protection without opening ports.\n` +
             `• Nginx / Caddy: Forward port ${port} on this host with a valid SSL certificate.`
         );
+
         displaySection('2. DATABASE CONFIGURATION');
 
         let mongoUri = '';
         let mongoValid = false;
 
         while (!mongoValid) {
-            mongoUri = await askValidated(rl, 'Enter your MongoDB Connection URI', 'mongodb://127.0.0.1:27017/cyrus', (val) => {
+            mongoUri = await askValidated(rl, 'Enter your MongoDB Connection URI', 'mongodb://127.0.0.1:27017/CyrusPanel', (val) => {
                 if (!val.trim().startsWith('mongodb://') && !val.trim().startsWith('mongodb+srv://')) {
                     return 'URI must start with mongodb:// or mongodb+srv://';
                 }
@@ -161,13 +206,144 @@ async function runInteractiveSetup(envPath) {
                 spinner.fail(`MongoDB Connection Failed: ${result.error}`);
                 const retry = await askConfirm(rl, 'Would you like to re-enter the MongoDB URI?', true);
                 if (!retry) {
-                    console.log(chalk.red('\n[✖] Setup aborted due to database verification failure.\n'));
+                    console.log(chalk.red('\n[!] Setup aborted due to database verification failure.\n'));
                     rl.close();
                     process.exit(1);
                 }
             }
         }
-        displaySection('3. AUTHENTICATION & SECURITY');
+
+        displaySection('3. ADMINISTRATOR ACCOUNT SETUP');
+
+        let mongoClient = new MongoClient(mongoUri.trim(), {
+            serverSelectionTimeoutMS: 5000,
+            connectTimeoutMS: 5000
+        });
+
+        await mongoClient.connect();
+        const db = mongoClient.db('CyrusPanel');
+        const usersCollection = db.collection('users');
+
+        const existingAdmin = await usersCollection.findOne({ admin: true });
+        let shouldCreateAdmin = false;
+
+        if (existingAdmin) {
+            displayNotice(
+                'PANEL ALREADY INITIALIZED',
+                `An existing administrator account (${chalk.cyan(existingAdmin.username || existingAdmin.email)}) was detected in the database.\nIt appears this Cyrus database was already set up previously.`
+            );
+            shouldCreateAdmin = await askConfirm(rl, 'Would you like to create another administrator account?', false);
+        } else {
+            console.log(chalk.yellow('No administrator account was found in the database. An administrator account is required.\n'));
+            shouldCreateAdmin = true;
+        }
+
+        if (shouldCreateAdmin) {
+            let adminEmail = '';
+            while (true) {
+                const emailInput = await ask(rl, 'Enter Administrator Email');
+                const cleanEmail = emailInput.trim().toLowerCase();
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+                if (!cleanEmail) {
+                    console.log(chalk.red('  └─ Email address is required.'));
+                    continue;
+                }
+                if (cleanEmail.length > 254 || !emailRegex.test(cleanEmail)) {
+                    console.log(chalk.red('  └─ Please enter a valid email address.'));
+                    continue;
+                }
+                const [localPart, domainPart] = cleanEmail.split('@');
+                const isGmail = domainPart === 'gmail.com' || domainPart === 'googlemail.com';
+                if (isGmail && localPart.includes('.')) {
+                    console.log(chalk.red('  └─ Gmail addresses cannot contain extra dots.'));
+                    continue;
+                }
+                const emailExists = await usersCollection.findOne({ email: cleanEmail });
+                if (emailExists) {
+                    console.log(chalk.red('  └─ Email address is already registered.'));
+                    continue;
+                }
+                adminEmail = cleanEmail;
+                break;
+            }
+
+            let adminUsername = '';
+            while (true) {
+                const userInput = await ask(rl, 'Enter Administrator Username');
+                const cleanUsername = userInput.trim();
+                const usernameRegex = /^[a-zA-Z0-9 ]{2,16}$/;
+
+                if (!cleanUsername) {
+                    console.log(chalk.red('  └─ Username is required.'));
+                    continue;
+                }
+                if (!usernameRegex.test(cleanUsername)) {
+                    console.log(chalk.red('  └─ Username must be 2-16 alphanumeric characters or spaces.'));
+                    continue;
+                }
+                const usernameExists = await usersCollection.findOne({
+                    username: { $regex: new RegExp(`^${cleanUsername.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, 'i') }
+                });
+                if (usernameExists) {
+                    console.log(chalk.red('  └─ Username is already taken.'));
+                    continue;
+                }
+                adminUsername = cleanUsername;
+                break;
+            }
+
+            let adminPassword = '';
+            while (true) {
+                const passInput = await ask(rl, 'Enter Administrator Password');
+                if (!passInput || passInput.length < 6) {
+                    console.log(chalk.red('  └─ Password must be at least 6 characters long.'));
+                    continue;
+                }
+                if (passInput.length > 72) {
+                    console.log(chalk.red('  └─ Password is too long. Maximum length is 72 characters.'));
+                    continue;
+                }
+                adminPassword = passInput;
+                break;
+            }
+
+            const adminSpinner = createSpinner('Creating administrator account...');
+            adminSpinner.start();
+
+            try {
+                const passwordHash = await hashPassword(adminPassword);
+                const userId = crypto.randomUUID();
+                const timestamp = Date.now();
+
+                const newAdminDoc = {
+                    _id: userId,
+                    email: adminEmail,
+                    username: adminUsername,
+                    password: passwordHash,
+                    admin: true,
+                    banned: null,
+                    bot: false,
+                    emailVerified: true,
+                    inviteCodeUsed: null,
+                    acceptTosAndPrivacy: true,
+                    acceptedTosAndPrivacyAt: timestamp,
+                    createdAt: timestamp
+                };
+
+                await usersCollection.insertOne(newAdminDoc);
+                adminSpinner.succeed(`Administrator account '${adminUsername}' created successfully!`);
+            } catch (err) {
+                adminSpinner.fail(`Failed to create administrator account: ${err.message}`);
+                await mongoClient.close();
+                rl.close();
+                process.exit(1);
+            }
+        }
+
+        await mongoClient.close();
+
+        displaySection('4. AUTHENTICATION & SECURITY');
 
         const autoJwt = generateRandomSecret(32);
         const useAutoJwt = await askConfirm(rl, `Use auto-generated secure JWT secret? (${autoJwt.slice(0, 16)}...)`, true);
@@ -178,7 +354,8 @@ async function runInteractiveSetup(envPath) {
                 if (val.trim().length < 16) return 'JWT secret must be at least 16 characters long';
             });
         }
-        displaySection('4. PANEL CUSTOMIZATION');
+
+        displaySection('5. PANEL CUSTOMIZATION');
 
         const panelName = await ask(rl, 'Panel Name', 'Cyrus');
         const panelDescription = await ask(rl, 'Panel Description', 'High-performance cloud compute and service management panel.');
@@ -190,7 +367,8 @@ async function runInteractiveSetup(envPath) {
             const n = parseInt(val, 10);
             if (isNaN(n) || n < 1) return 'Must be a positive integer';
         });
-        displaySection('5. VERIFICATION & MAIL SERVICES');
+
+        displaySection('6. VERIFICATION & MAIL SERVICES');
 
         const recaptchaEnabled = await askConfirm(rl, 'Enable Google reCAPTCHA verification?', false);
         let recaptchaPublicKey = '';
@@ -217,7 +395,8 @@ async function runInteractiveSetup(envPath) {
                 if (!val.trim()) return 'Resend API Key is required when enabled';
             });
         }
-        displaySection('6. BILLING & PAYMENTS');
+
+        displaySection('7. BILLING & PAYMENTS');
 
         const paymentsEnabled = await askConfirm(rl, 'Enable panel payment system?', true);
         let creditsPricePer10 = '0.2000';
@@ -233,7 +412,8 @@ async function runInteractiveSetup(envPath) {
                 });
             }
         }
-        displaySection('7. API CALLBACKS & WEBHOOKS');
+
+        displaySection('8. API CALLBACKS & WEBHOOKS');
 
         const providerApiCallbackEnabled = await askConfirm(
             rl,
@@ -246,6 +426,7 @@ async function runInteractiveSetup(envPath) {
             const autoCallbackKey = generateRandomSecret(24);
             apiCallbackKey = await ask(rl, 'API Callback Authentication Key', autoCallbackKey);
         }
+
         const envContent = `# Cyrus Panel Configuration
 # Generated on: ${new Date().toISOString()}
 
@@ -288,8 +469,8 @@ installationCompleted=true
 
         fs.writeFileSync(envPath, envContent, 'utf8');
 
-        console.log(chalk.gray('\n─────────────────────────────────────────────────────────────'));
-        console.log(chalk.green.bold('✔ Setup completed successfully! Starting Cyrus Panel...\n'));
+        console.log(chalk.white('\n─────────────────────────────────────────────────────────────'));
+        console.log(chalk.green.bold('Setup completed successfully! Starting Cyrus Panel...\n'));
 
         rl.close();
         await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -328,7 +509,7 @@ async function checkAndRunSetup(envPath) {
         rl.close();
 
         if (!shouldProceed) {
-            console.log(chalk.red('\n[✖] Installation aborted. The server will not start.'));
+            console.log(chalk.red('\n[!] Installation aborted. The server will not start.'));
             console.log(chalk.gray('Run this application again when you are ready to configure the panel.\n'));
             return new Promise(() => {});
         }
