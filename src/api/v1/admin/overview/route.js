@@ -26,7 +26,7 @@ module.exports = {
             const serversCount = await db.collection('servers').countDocuments({});
 
             return reply.status(200).send({
-                apiVersion: '1.0.0',
+                apiVersion: '1.0.1',
                 usersCount: usersCount,
                 serversCount: serversCount
             });
