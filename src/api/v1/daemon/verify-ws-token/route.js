@@ -2,8 +2,6 @@ const jwt = require('jsonwebtoken');
 const { getDB } = require('../../../../lib/db');
 const { checkRateLimit } = require('../../../../lib/rateLimit');
 
-const JWT_SECRET = process.env.JWT_SECRET;
-
 module.exports = {
     POST: async (req, reply) => {
         try {
@@ -28,7 +26,7 @@ module.exports = {
 
             let decoded;
             try {
-                decoded = jwt.verify(token, JWT_SECRET);
+                decoded = jwt.verify(token, node.daemonKey);
             } catch (jwtErr) {
                 return reply.status(200).send({ valid: false, reason: 'TOKEN_EXPIRED' });
             }
@@ -52,7 +50,9 @@ module.exports = {
             return reply.status(200).send({
                 valid: true,
                 serverId: decoded.serverId,
-                userId: decoded.userId
+                userId: decoded.userId,
+                canConsole: decoded.canConsole === true,
+                canPower: decoded.canPower === true
             });
         } catch (err) {
             console.error('[Verify WS Token Error]:', err);
