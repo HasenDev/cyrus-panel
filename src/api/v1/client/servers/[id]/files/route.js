@@ -73,8 +73,8 @@ module.exports = {
           metadata: { file: filePath }
         });
 
-        const downloadUrl = `${scheme}://${rawFqdn}:${port}/api/client/files/download?token=${token}`;
-        return reply.status(200).send({ url: downloadUrl });
+        const downloadUrl = `${scheme}://${rawFqdn}:${port}/api/client/files/download`;
+        return reply.status(200).send({ url: downloadUrl, token });
       }
 
       if (req.query.action === 'upload-url') {
@@ -123,9 +123,10 @@ module.exports = {
           metadata: { directory }
         });
 
-        const uploadUrl = `${scheme}://${rawFqdn}:${port}/api/client/files/upload?token=${token}`;
+        const uploadUrl = `${scheme}://${rawFqdn}:${port}/api/client/files/upload`;
         return reply.status(200).send({
           url: uploadUrl,
+          token,
           maxSizeMB: effectiveUploadLimitMB
         });
       }
