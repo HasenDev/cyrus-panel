@@ -5,13 +5,14 @@ const { getUserServerPermissions } = require('../../../../../../lib/serverPermis
 const { logActivity } = require('../../../../../../lib/logActivity');
 
 function extractServerId(req) {
-  return (
+  const rawId =
     req.params?.id ||
     req.params?.serverId ||
     req.query?.serverId ||
     req.query?.id ||
-    req.body?.serverId
-  );
+    req.body?.serverId;
+
+  return typeof rawId === 'string' && rawId.trim().length > 0 ? rawId.trim() : null;
 }
 
 module.exports = {
@@ -106,44 +107,63 @@ module.exports = {
 
       const { action, allocationId, notes } = req.body || {};
       const primaryId = server.allocationId;
-      const additionalIds = Array.isArray(server.additionalAllocationIds) ? server.additionalAllocationIds : [];
       const maxAllocations = Math.min(50, Math.max(1, parseInt(server.maxAllocations, 10) || 5));
-      const currentTotal = 1 + additionalIds.length;
+
       if (action === 'assign') {
-        if (currentTotal >= maxAllocations) {
-          return reply.status(400).send({ error: `Server has reached its maximum limit of ${maxAllocations} allocations.` });
-        }
-
-        const availableAlloc = await db.collection('allocations').findOne({
-          nodeId: server.nodeId,
-          assignedServerId: null
-        });
-
-        if (!availableAlloc) {
-          return reply.status(400).send({ error: 'No available unassigned ports found on this node.' });
-        }
-
-        await db.collection('allocations').updateOne(
-          { id: availableAlloc.id },
+        const assignedAlloc = await db.collection('allocations').findOneAndUpdate(
+          {
+            nodeId: server.nodeId,
+            assignedServerId: null
+          },
           {
             $set: {
               assignedServerId: server.id,
-              assignedServerName: server.name,
+              assignedServerName: server.name || '',
               notes: ''
             }
-          }
+          },
+          { returnDocument: 'after' }
         );
 
-        await db.collection('servers').updateOne(
-          { id: server.id },
-          { $addToSet: { additionalAllocationIds: availableAlloc.id } }
+        if (!assignedAlloc) {
+          return reply.status(400).send({ error: 'No available unassigned ports found on this node.' });
+        }
+
+        const serverUpdateResult = await db.collection('servers').updateOne(
+          {
+            id: server.id,
+            $expr: {
+              $lt: [
+                { $add: [1, { $size: { $ifNull: ['$additionalAllocationIds', []] } }] },
+                maxAllocations
+              ]
+            }
+          },
+          { $addToSet: { additionalAllocationIds: assignedAlloc.id } }
         );
+
+        if (serverUpdateResult.modifiedCount !== 1) {
+          await db.collection('allocations').updateOne(
+            { id: assignedAlloc.id, assignedServerId: server.id },
+            {
+              $set: {
+                assignedServerId: null,
+                assignedServerName: null,
+                notes: ''
+              }
+            }
+          );
+
+          return reply.status(400).send({
+            error: `Server has reached its maximum limit of ${maxAllocations} allocations.`
+          });
+        }
 
         logActivity(req, db, {
           serverId: server.id,
           action: 'server:network.assign',
-          detail: `Allocated new port ${availableAlloc.ip}:${availableAlloc.port}`,
-          metadata: { allocationId: availableAlloc.id, ip: availableAlloc.ip, port: availableAlloc.port }
+          detail: `Allocated new port ${assignedAlloc.ip}:${assignedAlloc.port}`,
+          metadata: { allocationId: assignedAlloc.id, ip: assignedAlloc.ip, port: assignedAlloc.port }
         });
 
         return reply.status(200).send({
@@ -151,23 +171,37 @@ module.exports = {
           message: 'New port successfully allocated to server.'
         });
       }
+
       if (action === 'set-primary') {
-        if (!allocationId) return reply.status(400).send({ error: 'Target allocation ID is required.' });
+        if (!allocationId || typeof allocationId !== 'string') {
+          return reply.status(400).send({ error: 'Target allocation ID is required.' });
+        }
+
         if (allocationId === primaryId) {
           return reply.status(400).send({ error: 'This port is already the primary allocation.' });
         }
 
-        if (!additionalIds.includes(allocationId)) {
+        const freshServer = await db.collection('servers').findOne({ id: server.id });
+        const currentPrimary = freshServer?.allocationId;
+        const currentAdditionals = Array.isArray(freshServer?.additionalAllocationIds)
+          ? freshServer.additionalAllocationIds
+          : [];
+
+        if (!currentAdditionals.includes(allocationId)) {
           return reply.status(400).send({ error: 'Selected allocation does not belong to this server.' });
         }
 
-        const targetAlloc = await db.collection('allocations').findOne({ id: allocationId });
+        const newAdditionals = currentAdditionals.filter((id) => id !== allocationId);
+        if (currentPrimary && !newAdditionals.includes(currentPrimary)) {
+          newAdditionals.push(currentPrimary);
+        }
 
-        const newAdditionals = additionalIds.filter((id) => id !== allocationId);
-        newAdditionals.push(primaryId);
-
-        await db.collection('servers').updateOne(
-          { id: server.id },
+        const swapResult = await db.collection('servers').updateOne(
+          {
+            id: server.id,
+            allocationId: currentPrimary,
+            additionalAllocationIds: allocationId
+          },
           {
             $set: {
               allocationId: allocationId,
@@ -176,7 +210,13 @@ module.exports = {
           }
         );
 
+        if (swapResult.modifiedCount !== 1) {
+          return reply.status(409).send({ error: 'Concurrent update detected. Please try again.' });
+        }
+
+        const targetAlloc = await db.collection('allocations').findOne({ id: allocationId });
         const epStr = targetAlloc ? `${targetAlloc.ip}:${targetAlloc.port}` : allocationId;
+
         logActivity(req, db, {
           serverId: server.id,
           action: 'server:network.primary',
@@ -189,36 +229,39 @@ module.exports = {
           message: 'Primary allocation updated successfully.'
         });
       }
+
       if (action === 'delete') {
-        if (!allocationId) return reply.status(400).send({ error: 'Allocation ID is required.' });
+        if (!allocationId || typeof allocationId !== 'string') {
+          return reply.status(400).send({ error: 'Allocation ID is required.' });
+        }
 
         if (allocationId === primaryId) {
           return reply.status(400).send({ error: 'Cannot delete the primary connection allocation.' });
         }
 
-        if (!additionalIds.includes(allocationId)) {
+        const serverUpdate = await db.collection('servers').updateOne(
+          { id: server.id, additionalAllocationIds: allocationId },
+          { $pull: { additionalAllocationIds: allocationId } }
+        );
+
+        if (serverUpdate.modifiedCount !== 1) {
           return reply.status(400).send({ error: 'Allocation does not belong to this server.' });
         }
 
-        const targetAlloc = await db.collection('allocations').findOne({ id: allocationId });
-
-        await db.collection('allocations').updateOne(
-          { id: allocationId },
+        const freedAlloc = await db.collection('allocations').findOneAndUpdate(
+          { id: allocationId, assignedServerId: server.id },
           {
             $set: {
               assignedServerId: null,
               assignedServerName: null,
               notes: ''
             }
-          }
+          },
+          { returnDocument: 'before' }
         );
 
-        await db.collection('servers').updateOne(
-          { id: server.id },
-          { $pull: { additionalAllocationIds: allocationId } }
-        );
+        const epStr = freedAlloc ? `${freedAlloc.ip}:${freedAlloc.port}` : allocationId;
 
-        const epStr = targetAlloc ? `${targetAlloc.ip}:${targetAlloc.port}` : allocationId;
         logActivity(req, db, {
           serverId: server.id,
           action: 'server:network.delete',
@@ -231,23 +274,26 @@ module.exports = {
           message: 'Allocation unassigned and released back to node pool.'
         });
       }
-      if (action === 'notes') {
-        if (!allocationId) return reply.status(400).send({ error: 'Allocation ID is required.' });
 
-        const allIds = [primaryId, ...additionalIds];
-        if (!allIds.includes(allocationId)) {
+      if (action === 'notes') {
+        if (!allocationId || typeof allocationId !== 'string') {
+          return reply.status(400).send({ error: 'Allocation ID is required.' });
+        }
+
+        const cleanNotes = typeof notes === 'string' ? notes.slice(0, 100).trim() : '';
+
+        const updateResult = await db.collection('allocations').updateOne(
+          { id: allocationId, assignedServerId: server.id },
+          { $set: { notes: cleanNotes } }
+        );
+
+        if (updateResult.matchedCount !== 1) {
           return reply.status(400).send({ error: 'Allocation does not belong to this server.' });
         }
 
         const targetAlloc = await db.collection('allocations').findOne({ id: allocationId });
-        const cleanNotes = typeof notes === 'string' ? notes.slice(0, 100).trim() : '';
-
-        await db.collection('allocations').updateOne(
-          { id: allocationId },
-          { $set: { notes: cleanNotes } }
-        );
-
         const epStr = targetAlloc ? `${targetAlloc.ip}:${targetAlloc.port}` : allocationId;
+
         logActivity(req, db, {
           serverId: server.id,
           action: 'server:network.notes',
