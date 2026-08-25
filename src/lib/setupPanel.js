@@ -6,25 +6,9 @@ const chalk = require('chalk');
 const { MongoClient } = require('mongodb');
 
 let projectAuth = null;
-const potentialPaths = [
-    './lib/auth',
-    '../lib/auth',
-    '../../lib/auth',
-    '../../../lib/auth',
-    '../../../../lib/auth',
-    './src/lib/auth',
-    './lib/auth.js'
-];
-
-for (const p of potentialPaths) {
-    try {
-        const mod = require(p);
-        if (mod && typeof mod.hashPassword === 'function') {
-            projectAuth = mod;
-            break;
-        }
-    } catch {}
-}
+try {
+    projectAuth = require('./auth');
+} catch {}
 
 async function hashPassword(password) {
     if (projectAuth && typeof projectAuth.hashPassword === 'function') {
@@ -178,8 +162,9 @@ async function runInteractiveSetup(envPath) {
         displayNotice(
             'REVERSE PROXY & EXPOSURE GUIDANCE',
             `To expose your panel safely to the internet, we recommend:\n\n` +
-            `• Cloudflare Tunnels (Zero Trust): Forward traffic directly to http://${bindIp}:${port} with automatic SSL & DDoS protection without opening ports.\n` +
-            `• Nginx / Caddy: Forward port ${port} on this host with a valid SSL certificate.`
+            `• Cloudflare Tunnels (Zero Trust): Forward traffic directly to http://${bindIp}:${port} without opening inbound ports. Cloudflare handles the public HTTPS endpoint and provides its edge protection.\n` +
+            `• Nginx / Caddy: Forward port ${port} on this host with a valid SSL certificate.\n\n` +
+            `If you need help setting that up. check out: https://cyrus.admibot.xyz/docs/category/reverse-proxy`
         );
 
         displaySection('2. DATABASE CONFIGURATION');
