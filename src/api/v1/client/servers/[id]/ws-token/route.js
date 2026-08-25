@@ -5,8 +5,6 @@ const { checkRateLimit } = require('../../../../../../lib/rateLimit');
 const { getUserServerPermissions } = require('../../../../../../lib/serverPermissions');
 const { logActivity } = require('../../../../../../lib/logActivity');
 
-const JWT_SECRET = process.env.JWT_SECRET;
-
 module.exports = {
   GET: async (req, reply) => {
     try {
@@ -24,9 +22,10 @@ module.exports = {
         return reply.status(404).send({ error: 'Server not found or access denied.' });
       }
 
-      const { isOwner, permissions } = await getUserServerPermissions(req.userId, server, db);
-      const canConsole = isOwner || permissions.includes('overview.console');
-      const canPower = isOwner || permissions.includes('overview.power');
+      const { isOwner, permissions = [] } = await getUserServerPermissions(req.userId, server, db);
+      const permList = Array.isArray(permissions) ? permissions : [];
+      const canConsole = Boolean(isOwner || permList.includes('overview.console'));
+      const canPower = Boolean(isOwner || permList.includes('overview.power'));
 
       if (!canConsole && !canPower) {
         return reply.status(403).send({ error: 'Access denied: Requires overview permissions.' });
@@ -41,7 +40,7 @@ module.exports = {
       }
 
       const node = await db.collection('nodes').findOne({ id: server.nodeId });
-      if (!node) return reply.status(404).send({ error: 'Server node not found.' });
+      if (!node || !node.daemonKey) return reply.status(404).send({ error: 'Server node not found or daemon key is missing.' });
 
       const user = await db.collection('users').findOne({ _id: req.userId });
       if (!user) return reply.status(404).send({ error: 'User not found.' });
@@ -59,7 +58,7 @@ module.exports = {
           canPower,
           exp: expiresAt
         },
-        JWT_SECRET
+        node.daemonKey
       );
 
       const scheme = node.scheme || 'https';
