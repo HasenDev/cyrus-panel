@@ -87,7 +87,7 @@ async function findTransaction(db, orderId, trackId) {
     return null;
 }
 
-async function completeTransaction(db, txn, trackId, orderId) {
+async function completeTransaction(db, txn, trackId, orderId, paidAmount, paidCurrency) {
     if (!db) {
         throw new Error('MongoDB Db instance is missing');
     }
@@ -112,6 +112,22 @@ async function completeTransaction(db, txn, trackId, orderId) {
         throw new Error(`Transaction order ID mismatch: stored=${String(currentTransaction.orderId)} received=${String(orderId)}`);
     }
 
+    const expectedAmount = Number(currentTransaction.amount ?? currentTransaction.price);
+    if (Number.isFinite(expectedAmount) && expectedAmount > 0) {
+        const received = Number(paidAmount);
+        if (!Number.isFinite(received) || received < expectedAmount) {
+            throw new Error(`Transaction amount mismatch: expected=${expectedAmount} received=${received}`);
+        }
+    }
+
+    if (currentTransaction.currency && paidCurrency) {
+        const expectedCurrency = String(currentTransaction.currency).trim().toUpperCase();
+        const receivedCurrency = String(paidCurrency).trim().toUpperCase();
+        if (expectedCurrency !== receivedCurrency) {
+            throw new Error(`Transaction currency mismatch: expected=${expectedCurrency} received=${receivedCurrency}`);
+        }
+    }
+
     const creditAmount = Number(currentTransaction.credits);
     if (!Number.isFinite(creditAmount) || creditAmount <= 0) {
         throw new Error(`Invalid transaction credit amount: ${String(currentTransaction.credits)}`);
@@ -123,6 +139,8 @@ async function completeTransaction(db, txn, trackId, orderId) {
 
     const updateData = {
         status: 'Completed',
+        paidAmount: Number(paidAmount) || expectedAmount || 0,
+        paidCurrency: paidCurrency || currentTransaction.currency || null,
         updatedAt: new Date().toISOString()
     };
 
@@ -194,6 +212,8 @@ module.exports = {
             const status = String(body.status ?? '').trim().toLowerCase();
             const orderId = normalizeId(body.order_id);
             const trackId = normalizeId(body.track_id);
+            const paidAmount = body.amount ?? body.pay_amount ?? null;
+            const paidCurrency = body.currency ?? body.pay_currency ?? null;
 
             if (type !== 'invoice') {
                 return reply.status(200).send('ok');
@@ -230,7 +250,25 @@ module.exports = {
                 return reply.status(200).send('ok');
             }
 
-            await completeTransaction(db, txn, trackId, orderId);
+            const expectedAmount = Number(txn.amount ?? txn.price);
+            if (Number.isFinite(expectedAmount) && expectedAmount > 0) {
+                const received = Number(paidAmount);
+                if (!Number.isFinite(received) || received < expectedAmount) {
+                    console.error(`[OxaPay Relay Error] ${requestId} underpayment or invalid amount: expected=${expectedAmount} received=${received}`);
+                    return reply.status(400).send('ok');
+                }
+            }
+
+            if (txn.currency && paidCurrency) {
+                const expectedCurrency = String(txn.currency).trim().toUpperCase();
+                const receivedCurrency = String(paidCurrency).trim().toUpperCase();
+                if (expectedCurrency !== receivedCurrency) {
+                    console.error(`[OxaPay Relay Error] ${requestId} currency mismatch: expected=${expectedCurrency} received=${receivedCurrency}`);
+                    return reply.status(400).send('ok');
+                }
+            }
+
+            await completeTransaction(db, txn, trackId, orderId, paidAmount, paidCurrency);
 
             return reply.status(200).send('ok');
         } catch (err) {
