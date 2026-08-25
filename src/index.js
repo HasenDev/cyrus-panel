@@ -13,7 +13,7 @@ const sharp = require('sharp');
 const fastify = require('fastify')({
     logger: false,
     trustProxy: true,
-    bodyLimit: 1024 * 1024 * 1024
+    bodyLimit: 30 * 1024 * 1024
 });
 const { checkAndRunSetup } = require('./lib/setupPanel');
 
@@ -392,17 +392,22 @@ async function start() {
 
         await fastify.register(require('@fastify/multipart'), {
             limits: {
-                fileSize: 1024 * 1024 * 1024,
-                fieldSize: 1024 * 1024 * 1024
+                fileSize: 30 * 1024 * 1024,
+                fieldSize: 30 * 1024 * 1024
             }
         });
 
         await fastify.register(require('@fastify/static'), {
             root: [uploadDir, cacheDir],
             setHeaders: (res) => {
-                res.setHeader('Content-Disposition', 'inline');
-                res.setHeader('X-Content-Type-Options', 'nosniff');
-                res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox;");
+                const set = (k, v) => {
+                    if (typeof res.setHeader === 'function') res.setHeader(k, v);
+                    else if (typeof res.header === 'function') res.header(k, v);
+                    else if (res.raw && typeof res.raw.setHeader === 'function') res.raw.setHeader(k, v);
+                };
+                set('Content-Disposition', 'inline');
+                set('X-Content-Type-Options', 'nosniff');
+                set('Content-Security-Policy', "default-src 'none'; sandbox;");
             }
         });
 
