@@ -2,6 +2,8 @@ const { getDB } = require('../../../../lib/db');
 const { authenticate } = require('../../../../lib/auth');
 const { checkRateLimit } = require('../../../../lib/rateLimit');
 
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
 module.exports = {
   GET: async (req, reply) => {
     try {
@@ -52,13 +54,22 @@ module.exports = {
         const isShared = server.ownerId !== req.userId;
         const isSuspended = Boolean(server.suspended);
 
-        let liveStatus = server.installing
+        const isInstallTimedOut = Boolean(
+          server.installing &&
+          server.installationStartedTimestamp &&
+          (Date.now() - Number(server.installationStartedTimestamp) > ONE_HOUR_MS)
+        );
+        const effectiveInstalling = Boolean(server.installing && !isInstallTimedOut);
+
+        let liveStatus = isInstallTimedOut
+          ? 'installation_failed'
+          : effectiveInstalling
           ? 'installing'
           : isSuspended
           ? 'suspended'
           : (server.status || 'offline');
 
-        if (!server.installing && !isSuspended && node) {
+        if (!effectiveInstalling && !isInstallTimedOut && !isSuspended && node) {
           try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 1800);
@@ -81,7 +92,7 @@ module.exports = {
           name: server.name,
           description: server.description || '',
           status: liveStatus,
-          installing: Boolean(server.installing),
+          installing: effectiveInstalling,
           suspended: isSuspended,
           shared: isShared,
           ipAddress: alloc ? alloc.ip : '0.0.0.0',
@@ -124,7 +135,13 @@ module.exports = {
         return reply.status(404).send({ error: 'Server not found or access denied.' });
       }
 
-      if (server.installing) {
+      const isInstallTimedOut = Boolean(
+        server.installing &&
+        server.installationStartedTimestamp &&
+        (Date.now() - Number(server.installationStartedTimestamp) > ONE_HOUR_MS)
+      );
+
+      if (server.installing && !isInstallTimedOut && server.status !== 'installation_failed') {
         return reply.status(400).send({ error: 'Cannot delete a server while installation is in progress.' });
       }
 
