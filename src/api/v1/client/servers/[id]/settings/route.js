@@ -4,6 +4,8 @@ const { checkRateLimit } = require('../../../../../../lib/rateLimit');
 const { getUserServerPermissions } = require('../../../../../../lib/serverPermissions');
 const { logActivity } = require('../../../../../../lib/logActivity');
 
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
 function extractServerId(req) {
   return (
     req.params?.id ||
@@ -36,14 +38,19 @@ module.exports = {
 
       const node = await db.collection('nodes').findOne({ id: server.nodeId });
 
+      const installTime = server.installationStartedTimestamp ? Number(server.installationStartedTimestamp) : (server.createdAt ? new Date(server.createdAt).getTime() : 0);
+      const isInstallTimedOut = Boolean(server.installing && installTime && (Date.now() - installTime > ONE_HOUR_MS));
+      const effectiveInstalling = Boolean(server.installing && !isInstallTimedOut);
+      const liveStatus = isInstallTimedOut ? 'installation_failed' : (effectiveInstalling ? 'installing' : (server.status || 'offline'));
+
       return reply.status(200).send({
         id: server.id,
         name: server.name,
         description: server.description || '',
         nodeName: node ? node.name : 'Unknown Node',
-        installing: Boolean(server.installing),
+        installing: effectiveInstalling,
         suspended: Boolean(server.suspended),
-        status: server.status || 'offline',
+        status: liveStatus,
         createdAt: server.createdAt,
         isOwner,
         canChangeInfo: isOwner || permissions.includes('settings.change.info'),
@@ -71,6 +78,10 @@ module.exports = {
 
       const { isOwner, permissions } = await getUserServerPermissions(req.userId, server, db);
 
+      const installTime = server.installationStartedTimestamp ? Number(server.installationStartedTimestamp) : (server.createdAt ? new Date(server.createdAt).getTime() : 0);
+      const isInstallTimedOut = Boolean(server.installing && installTime && (Date.now() - installTime > ONE_HOUR_MS));
+      const effectiveInstalling = Boolean(server.installing && !isInstallTimedOut);
+
       const { action, name, description } = req.body || {};
       if (action === 'rename' || (!action && (name !== undefined || description !== undefined))) {
         if (!isOwner && !permissions.includes('settings.change.info')) {
@@ -81,7 +92,7 @@ module.exports = {
           return reply.status(403).send({ error: 'Server details cannot be modified while server is suspended.' });
         }
 
-        if (server.installing) {
+        if (effectiveInstalling) {
           return reply.status(400).send({ error: 'Server details cannot be modified while server is installing.' });
         }
 
@@ -147,7 +158,7 @@ module.exports = {
           return reply.status(403).send({ error: 'Suspended servers cannot be reinstalled. Please renew the server first.' });
         }
 
-        if (server.installing) {
+        if (effectiveInstalling) {
           return reply.status(400).send({ error: 'Server is already undergoing an installation process.' });
         }
 
@@ -196,7 +207,7 @@ module.exports = {
 
           if (!daemonRes.ok) {
             const dData = await daemonRes.json().catch(() => ({}));
-            return reply.status(400).send({ error: dData.error || 'Daemon rejected reinstall request.' });
+            return reply.status(400).send({ error: dData.error || 'Could not reach the daemon.' });
           }
         } catch {
           return reply.status(502).send({ error: 'Failed to communicate with node daemon. Server reinstallation aborted.' });
@@ -204,7 +215,13 @@ module.exports = {
 
         await db.collection('servers').updateOne(
           { id: server.id },
-          { $set: { installing: true, status: 'installing' } }
+          {
+            $set: {
+              installing: true,
+              installationStartedTimestamp: Date.now(),
+              status: 'installing'
+            }
+          }
         );
 
         logActivity(req, db, {
@@ -223,7 +240,7 @@ module.exports = {
           return reply.status(403).send({ error: 'Access denied: Only the server owner can delete this server.' });
         }
 
-        if (server.installing) {
+        if (effectiveInstalling && server.status !== 'installation_failed') {
           return reply.status(400).send({ error: 'Cannot delete server while it is actively installing.' });
         }
 
