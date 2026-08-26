@@ -22,9 +22,19 @@ const ALLOWED_ENV_KEYS = new Set([
     'OXAPAY_API_KEY',
     'PROVIDER_API_CALLBACK_ENABLED',
     'API_CALLBACK_KEY',
+    'EXTERNAL_CREDITS_STORE_URL',
     'CREDITS_PRICE_PER_10',
     'DEFAULT_MAX_DEPLOYMENTS'
 ]);
+
+function isValidHttpUrl(string) {
+    try {
+        const url = new URL(string);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+        return false;
+    }
+}
 
 function readEnvFile() {
     if (!fs.existsSync(ENV_PATH)) return {};
@@ -154,6 +164,7 @@ module.exports = {
                 oxaPayApiKey: env.OXAPAY_API_KEY || '',
                 providerApiCallbackEnabled: env.PROVIDER_API_CALLBACK_ENABLED === 'true',
                 apiCallbackKey: env.API_CALLBACK_KEY || '',
+                externalCreditsStoreUrl: env.EXTERNAL_CREDITS_STORE_URL || '',
                 creditsPricePer10: env.CREDITS_PRICE_PER_10 || '0.20',
                 defaultMaxDeployments: env.DEFAULT_MAX_DEPLOYMENTS || process.env.DEFAULT_MAX_DEPLOYMENTS || '10'
             });
@@ -200,6 +211,14 @@ module.exports = {
 
             if (typeof body.apiCallbackKey === 'string') {
                 envUpdates.API_CALLBACK_KEY = body.apiCallbackKey.trim();
+            }
+
+            if (typeof body.externalCreditsStoreUrl === 'string') {
+                const trimmedUrl = body.externalCreditsStoreUrl.trim();
+                if (trimmedUrl && !isValidHttpUrl(trimmedUrl)) {
+                    return reply.status(400).send({ error: 'External credits store URL must be a valid HTTP or HTTPS URL.' });
+                }
+                envUpdates.EXTERNAL_CREDITS_STORE_URL = trimmedUrl;
             }
 
             if (body.creditsPricePer10 !== undefined) {
