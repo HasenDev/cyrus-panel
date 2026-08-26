@@ -16,6 +16,7 @@ const ALLOWED_ENV_KEYS = new Set([
     'RECAPTCHA_SECRET_KEY',
     'RECAPTCHA_ENABLED',
     'RESEND_API_KEY',
+    'RESEND_FROM_DOMAIN',
     'EMAIL_ENABLED',
     'PAYMENTS_ENABLED',
     'PROVIDER_OXAPAY_ENABLED',
@@ -94,6 +95,49 @@ function updateEnvFile(newVars) {
     fs.writeFileSync(ENV_PATH, lines.join('\n'), 'utf8');
 }
 
+async function validateResendCredentials(apiKey, domainName) {
+    try {
+        const res = await fetch('https://api.resend.com/domains', {
+            method: 'GET',
+            headers: {
+                Authorization: `Bearer ${apiKey}`,
+                'User-Agent': 'Cyrus Panel/1.0'
+            }
+        });
+
+        if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            return { valid: false, error: errData.message || 'Invalid Resend API Key.' };
+        }
+
+        const data = await res.json().catch(() => ({}));
+        const domains = Array.isArray(data.data) ? data.data : (Array.isArray(data) ? data : []);
+
+        if (domainName) {
+            const cleanDomain = domainName.trim().toLowerCase();
+            const matched = domains.find(d => (d.name || '').toLowerCase() === cleanDomain);
+
+            if (!matched) {
+                return {
+                    valid: false,
+                    error: `The domain "${cleanDomain}" is not registered in your Resend account. Please add it in your Resend dashboard.`
+                };
+            }
+
+            if (matched.status !== 'verified') {
+                return {
+                    valid: false,
+                    error: `The domain "${cleanDomain}" is not verified (status: ${matched.status}). Please complete DNS verification in Resend.`
+                };
+            }
+        }
+
+        return { valid: true };
+    } catch {
+        return { valid: false, error: 'Could not connect to Resend servers to verify credentials.' };
+    }
+}
+
 module.exports = {
     GET: async (req, reply) => {
         try {
@@ -124,6 +168,7 @@ module.exports = {
                 recaptchaSecretKey: env.RECAPTCHA_SECRET_KEY || '',
                 recaptchaEnabled: env.RECAPTCHA_ENABLED === 'true',
                 resendApiKey: env.RESEND_API_KEY || '',
+                resendFromDomain: env.RESEND_FROM_DOMAIN || '',
                 resendEnabled: env.EMAIL_ENABLED === 'true'
             });
         } catch (err) {
@@ -163,8 +208,31 @@ module.exports = {
             if (typeof body.recaptchaPublicKey === 'string') envUpdates.RECAPTCHA_PUBLIC_KEY = body.recaptchaPublicKey.trim();
             if (typeof body.recaptchaSecretKey === 'string') envUpdates.RECAPTCHA_SECRET_KEY = body.recaptchaSecretKey.trim();
             if (typeof body.recaptchaEnabled === 'boolean') envUpdates.RECAPTCHA_ENABLED = body.recaptchaEnabled ? 'true' : 'false';
-            if (typeof body.resendApiKey === 'string') envUpdates.RESEND_API_KEY = body.resendApiKey.trim();
-            if (typeof body.resendEnabled === 'boolean') envUpdates.EMAIL_ENABLED = body.resendEnabled ? 'true' : 'false';
+
+            const isEmailEnabled = body.resendEnabled === true || (body.resendEnabled === undefined && process.env.EMAIL_ENABLED === 'true');
+            const targetApiKey = body.resendApiKey !== undefined ? body.resendApiKey.trim() : (process.env.RESEND_API_KEY || '').trim();
+            const targetDomain = body.resendFromDomain !== undefined ? body.resendFromDomain.trim() : (process.env.RESEND_FROM_DOMAIN || '').trim();
+
+            if (typeof body.resendApiKey === 'string') {
+                envUpdates.RESEND_API_KEY = body.resendApiKey.trim();
+            }
+            if (typeof body.resendFromDomain === 'string') {
+                envUpdates.RESEND_FROM_DOMAIN = body.resendFromDomain.trim().toLowerCase();
+            }
+            if (typeof body.resendEnabled === 'boolean') {
+                envUpdates.EMAIL_ENABLED = body.resendEnabled ? 'true' : 'false';
+            }
+
+            if (isEmailEnabled) {
+                if (!targetApiKey) {
+                    return reply.status(400).send({ error: 'A Resend API Key is required when Email Verification is enabled.' });
+                }
+
+                const validation = await validateResendCredentials(targetApiKey, targetDomain);
+                if (!validation.valid) {
+                    return reply.status(400).send({ error: validation.error });
+                }
+            }
 
             if (typeof body.websiteUrl === 'string') {
                 dbUpdates.websiteUrl = body.websiteUrl.trim();
