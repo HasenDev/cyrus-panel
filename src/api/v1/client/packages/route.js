@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { getDB } = require('../../../../lib/db');
 const { authenticate } = require('../../../../lib/auth');
 const { checkRateLimit } = require('../../../../lib/rateLimit');
@@ -7,11 +8,11 @@ const { validateDockerImage, buildAndValidateEnv } = require('../../../../lib/va
 const { BILLING_CYCLE_MS } = require('../../../../lib/autoPayment');
 
 function generateServerId() {
-    return 'srv_' + Math.random().toString(36).substring(2, 9);
+    return 'srv_' + crypto.randomBytes(8).toString('hex');
 }
 
 function generateTxnId() {
-    return 'txn_' + Math.random().toString(36).substring(2, 10);
+    return 'txn_' + crypto.randomBytes(8).toString('hex');
 }
 
 function readEnvMaxDeployments() {
