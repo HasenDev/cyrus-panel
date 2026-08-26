@@ -5,9 +5,9 @@ const { sendVerificationEmail, getEnv } = require('../../../../lib/emailHandler'
 
 const getRecaptchaConfig = () => {
     const env = getEnv();
-    const secret = env.RECAPTCHA_SECRET_KEY || env.RECAPTCHA_SECRET;
-    const siteKey = env.RECAPTCHA_PUBLIC_KEY || env.RECAPTCHA_SITE_KEY;
-    const enabled = env.RECAPTCHA_ENABLED === 'true' && !!secret;
+    const secret = env.RECAPTCHA_SECRET_KEY || env.RECAPTCHA_SECRET || process.env.RECAPTCHA_SECRET_KEY || process.env.RECAPTCHA_SECRET;
+    const siteKey = env.RECAPTCHA_PUBLIC_KEY || env.RECAPTCHA_SITE_KEY || process.env.RECAPTCHA_PUBLIC_KEY || process.env.RECAPTCHA_SITE_KEY;
+    const enabled = (env.RECAPTCHA_ENABLED === 'true' || process.env.RECAPTCHA_ENABLED === 'true') && !!secret;
     return { enabled, secret, siteKey };
 };
 
@@ -107,7 +107,9 @@ module.exports = {
             }
 
             const env = getEnv();
-            const emailVerificationRequired = env.EMAIL_ENABLED === 'true' && !!env.RESEND_API_KEY;
+            const emailEnabled = env.EMAIL_ENABLED === 'true' || process.env.EMAIL_ENABLED === 'true';
+            const resendApiKey = env.RESEND_API_KEY || process.env.RESEND_API_KEY;
+            const emailVerificationRequired = emailEnabled && !!resendApiKey;
 
             const passwordHash = await hashPassword(password);
             const userId = crypto.randomUUID();
@@ -137,7 +139,7 @@ module.exports = {
                     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
                 });
 
-                const baseUrl = env.APP_URL || env.PANEL_URL;
+                const baseUrl = env.API_URL || env.APP_URL || env.PANEL_URL || process.env.API_URL || process.env.APP_URL || process.env.PANEL_URL || (req.headers.origin ? req.headers.origin : (req.headers.host ? `${req.protocol || 'http'}://${req.headers.host}` : null));
                 if (!baseUrl) {
                     return reply.status(500).send({ error: 'Server is not properly configured. Please contact an administrator.' });
                 }
