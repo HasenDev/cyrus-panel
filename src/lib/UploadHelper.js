@@ -7,7 +7,7 @@ const {
     Transform
 } = require('stream');
 const snowflake = require('./snowflake');
-const ALLOWED_IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".ico", ".svg"]);
+const ALLOWED_IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".ico"]);
 const MIME_TO_EXT = {
     "image/jpeg": ".jpg",
     "image/jpg": ".jpg",
