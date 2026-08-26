@@ -137,8 +137,10 @@ module.exports = {
                     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
                 });
 
-                const hostOrigin = req.headers.origin || req.headers.host || 'http://localhost:3000';
-                const baseUrl = env.APP_URL || env.PANEL_URL || (hostOrigin.startsWith('http') ? hostOrigin : `https://${hostOrigin}`);
+                const baseUrl = env.APP_URL || env.PANEL_URL;
+                if (!baseUrl) {
+                    return reply.status(500).send({ error: 'Server is not properly configured. Please contact an administrator.' });
+                }
                 const verifyUrl = `${baseUrl.replace(/\/$/, '')}/verify-email?code=${verifyCode}`;
 
                 await sendVerificationEmail({
