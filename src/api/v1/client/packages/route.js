@@ -271,6 +271,7 @@ module.exports = {
                 priceCredits: plan.priceCredits,
                 maxAllocations: maxAllocationsVal,
                 installing: true,
+                installationStartedTimestamp: Date.now(),
                 status: 'installing',
                 suspended: false,
                 lastPaymentDate: now.toISOString(),
