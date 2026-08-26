@@ -109,8 +109,10 @@ module.exports = {
             });
 
             const env = getEnv();
-            const hostOrigin = req.headers.origin || req.headers.host || 'http://localhost:3000';
-            const baseUrl = env.APP_URL || env.PANEL_URL || (hostOrigin.startsWith('http') ? hostOrigin : `https://${hostOrigin}`);
+            const baseUrl = env.APP_URL || env.PANEL_URL;
+            if (!baseUrl) {
+                return reply.status(500).send({ error: 'Server is not properly configured. Please contact an administrator.' });
+            }
             const resetUrl = `${baseUrl.replace(/\/$/, '')}/reset-password?code=${resetCode}`;
 
             await sendPasswordResetEmail({
