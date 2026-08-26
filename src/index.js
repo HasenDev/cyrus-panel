@@ -376,8 +376,25 @@ async function start() {
             routes: ['/api/v1/payment/oxapay/relay']
         });
 
+        const allowedOrigins = [
+            process.env.APP_URL,
+            process.env.PANEL_URL,
+            process.env.API_URL,
+            'http://localhost:3000',
+            'http://localhost:67777'
+        ].filter(Boolean).map((url) => url.trim().replace(/\/+$/, ''));
+
         await fastify.register(require('@fastify/cors'), {
-            origin: true,
+            origin: (origin, cb) => {
+                if (!origin) {
+                    return cb(null, true);
+                }
+                const cleanOrigin = origin.trim().replace(/\/+$/, '');
+                if (allowedOrigins.includes(cleanOrigin)) {
+                    return cb(null, true);
+                }
+                return cb(new Error('Not allowed by CORS'), false);
+            },
             methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
             allowedHeaders: ['Content-Type', 'Authorization'],
             credentials: true
