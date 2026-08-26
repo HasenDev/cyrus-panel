@@ -11,13 +11,14 @@ module.exports = {
             }
 
             let daemonKey = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
-            if (checkRateLimit(reply, daemonKey, 'DAEMON_VERIFY_TOKEN', 120, 60000)) return;
 
             const db = getDB();
             const node = await db.collection('nodes').findOne({ daemonKey });
             if (!node) {
                 return reply.status(401).send({ valid: false, error: 'Invalid daemon key.' });
             }
+
+            if (checkRateLimit(reply, node.id, 'DAEMON_VERIFY_TOKEN', 120, 60000)) return;
 
             const { token, serverId } = req.body || {};
             if (!token || !serverId) {
