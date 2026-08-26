@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { getDB } = require('../../../../lib/db');
 const { authenticate } = require('../../../../lib/auth');
 const { checkRateLimit } = require('../../../../lib/rateLimit');
@@ -55,7 +56,7 @@ module.exports = {
                 { $inc: { credits: voucher.credits } }
             );
 
-            const txnId = `VOUCH-${Math.floor(10000 + Math.random() * 90000)}`;
+            const txnId = `VOUCH-${crypto.randomInt(10000, 100000)}`;
             const newTxn = {
                 id: txnId,
                 userId: req.userId,
