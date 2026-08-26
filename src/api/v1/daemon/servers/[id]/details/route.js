@@ -1,4 +1,5 @@
 const { getDB } = require('../../../../../../lib/db');
+const { checkRateLimit } = require('../../../../../../lib/rateLimit');
 
 module.exports = {
     GET: async (req, reply) => {
@@ -11,6 +12,8 @@ module.exports = {
             const db = getDB();
             const node = await db.collection('nodes').findOne({ daemonKey });
             if (!node) return reply.status(401).send({ error: 'Invalid daemon key.' });
+
+            if (checkRateLimit(reply, node.id, 'DAEMON_SERVER_DETAILS_GET', 120, 60000)) return;
 
             const serverId = req.params?.id || req.query?.serverId;
             const server = await db.collection('servers').findOne({ id: serverId, nodeId: node.id });
