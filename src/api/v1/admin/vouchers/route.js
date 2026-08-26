@@ -1,18 +1,20 @@
+const crypto = require('crypto');
 const { getDB } = require('../../../../lib/db');
 const { authenticate } = require('../../../../lib/auth');
 const { getPermissions } = require('../../../../lib/getPermissions');
 const { checkRateLimit } = require('../../../../lib/rateLimit');
 
 function generateVoucherId() {
-    return 'vouch_' + Math.random().toString(36).substring(2, 9);
+    return 'vouch_' + crypto.randomBytes(8).toString('hex');
 }
 
 function generateVoucherCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const bytes = crypto.randomBytes(8);
     let p1 = '', p2 = '';
     for (let i = 0; i < 4; i++) {
-        p1 += chars.charAt(Math.floor(Math.random() * chars.length));
-        p2 += chars.charAt(Math.floor(Math.random() * chars.length));
+        p1 += chars[bytes[i] % chars.length];
+        p2 += chars[bytes[i + 4] % chars.length];
     }
     return `${p1}-${p2}`;
 }
