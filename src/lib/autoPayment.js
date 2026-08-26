@@ -1,9 +1,12 @@
+const crypto = require('crypto');
 const { ObjectId } = require('mongodb');
 const { getDB } = require('./db');
 const BILLING_CYCLE_MS = 30 * 24 * 60 * 60 * 1000;
+
 function generateTxnId() {
-    return 'txn_' + Math.random().toString(36).substring(2, 10);
+    return 'txn_' + crypto.randomBytes(8).toString('hex');
 }
+
 function normalizeUserQuery(userId) {
     if (!userId) return null;
     if (typeof userId === 'string' && ObjectId.isValid(userId)) {
@@ -11,6 +14,7 @@ function normalizeUserQuery(userId) {
     }
     return userId;
 }
+
 async function processServerBilling() {
     try {
         const db = getDB();
