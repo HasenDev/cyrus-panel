@@ -1,4 +1,5 @@
 const { getDB } = require('../../../../lib/db');
+const { checkRateLimit } = require('../../../../lib/rateLimit');
 
 async function authenticateDaemon(req, reply) {
     const authHeader = req.headers.authorization;
@@ -22,6 +23,8 @@ module.exports = {
         try {
             await authenticateDaemon(req, reply);
             if (reply.sent) return;
+
+            if (checkRateLimit(reply, req.node.id, 'DAEMON_SERVERS_GET', 60, 60000)) return;
 
             const db = getDB();
             const node = req.node;
@@ -74,6 +77,8 @@ module.exports = {
         try {
             await authenticateDaemon(req, reply);
             if (reply.sent) return;
+
+            if (checkRateLimit(reply, req.node.id, 'DAEMON_SERVERS_POST', 30, 60000)) return;
 
             const db = getDB();
             const { clearedDeletions } = req.body || {};
