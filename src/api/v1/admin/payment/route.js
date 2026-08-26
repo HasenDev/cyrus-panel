@@ -7,6 +7,25 @@ const { checkRateLimit } = require('../../../../lib/rateLimit');
 
 const ENV_PATH = path.resolve(__dirname, '../../../../../.env');
 
+const ALLOWED_ENV_KEYS = new Set([
+    'PANEL_NAME',
+    'PANEL_DESCRIPTION',
+    'PANEL_ICON',
+    'ACCENT_COLOR',
+    'RECAPTCHA_PUBLIC_KEY',
+    'RECAPTCHA_SECRET_KEY',
+    'RECAPTCHA_ENABLED',
+    'RESEND_API_KEY',
+    'EMAIL_ENABLED',
+    'PAYMENTS_ENABLED',
+    'PROVIDER_OXAPAY_ENABLED',
+    'OXAPAY_API_KEY',
+    'PROVIDER_API_CALLBACK_ENABLED',
+    'API_CALLBACK_KEY',
+    'CREDITS_PRICE_PER_10',
+    'DEFAULT_MAX_DEPLOYMENTS'
+]);
+
 function readEnvFile() {
     if (!fs.existsSync(ENV_PATH)) return {};
     try {
@@ -33,12 +52,18 @@ function readEnvFile() {
 }
 
 function updateEnvFile(newVars) {
+    if (!newVars || typeof newVars !== 'object') return;
+
     let content = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf8') : '';
     let lines = content.split(/\r?\n/);
 
     Object.keys(newVars).forEach(key => {
-        const val = String(newVars[key]);
-        const formattedVal = val.includes(' ') || val.includes('#') ? `"${val.replace(/"/g, '\\"')}"` : val;
+        if (!ALLOWED_ENV_KEYS.has(key)) return;
+
+        const val = String(newVars[key]).replace(/[\r\n]/g, '');
+        const formattedVal = val.includes(' ') || val.includes('#') || val.includes('"')
+            ? `"${val.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+            : val;
 
         let found = false;
         lines = lines.map(line => {
