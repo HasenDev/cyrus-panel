@@ -1,11 +1,14 @@
+const crypto = require('crypto');
 const { getDB } = require('../../../../lib/db');
 const { authenticate } = require('../../../../lib/auth');
 const { getPermissions } = require('../../../../lib/getPermissions');
 const { checkRateLimit } = require('../../../../lib/rateLimit');
 const { validateDockerImage, buildAndValidateEnv } = require('../../../../lib/variableValidator');
 
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
 function generateServerId() {
-    return 'srv_' + Math.random().toString(36).substring(2, 9);
+    return 'srv_' + crypto.randomBytes(8).toString('hex');
 }
 
 module.exports = {
@@ -58,9 +61,13 @@ module.exports = {
                 const node = nodes.find(n => n.id === s.nodeId);
                 const alloc = allocations.find(a => a.id === s.allocationId);
 
-                let liveStatus = s.installing ? 'installing' : (s.status || 'offline');
+                const installTime = s.installationStartedTimestamp ? Number(s.installationStartedTimestamp) : (s.createdAt ? new Date(s.createdAt).getTime() : 0);
+                const isInstallTimedOut = Boolean(s.installing && installTime && (Date.now() - installTime > ONE_HOUR_MS));
+                const effectiveInstalling = Boolean(s.installing && !isInstallTimedOut);
 
-                if (!s.installing && node && !node.maintenanceMode) {
+                let liveStatus = isInstallTimedOut ? 'installation_failed' : (effectiveInstalling ? 'installing' : (s.status || 'offline'));
+
+                if (!effectiveInstalling && !isInstallTimedOut && node && !node.maintenanceMode) {
                     try {
                         const controller = new AbortController();
                         const timeoutId = setTimeout(() => controller.abort(), 1500);
@@ -96,7 +103,7 @@ module.exports = {
                     cpu: s.cpu || 100,
                     priceCredits: s.priceCredits || 0,
                     maxAllocations: Math.min(50, Math.max(0, parseInt(s.maxAllocations, 10) || 0)),
-                    installing: Boolean(s.installing),
+                    installing: effectiveInstalling,
                     status: liveStatus,
                     createdAt: s.createdAt
                 };
@@ -207,6 +214,7 @@ module.exports = {
                 priceCredits: Math.max(0, parseInt(priceCredits, 10) || 0),
                 maxAllocations: sanitizedMaxAllocations,
                 installing: true,
+                installationStartedTimestamp: Date.now(),
                 status: 'installing',
                 eggScript: egg.scripts || {},
                 allocations: {
@@ -239,8 +247,8 @@ module.exports = {
                     });
                 }
             } catch (err) {
-                return reply.status(502).send({
-                    error: `Node Daemon Unreachable: Could not connect to node ${node.name} (${node.fqdn}).`
+                return reply.status(400).send({
+                    error: `Node Daemon Unreachable: Could not connect to node ${node.name}.`
                 });
             }
 
