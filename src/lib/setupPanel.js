@@ -164,7 +164,7 @@ async function runInteractiveSetup(envPath) {
             `To expose your panel safely to the internet, we recommend:\n\n` +
             `• Cloudflare Tunnels (Zero Trust): Forward traffic directly to http://${bindIp}:${port} without opening inbound ports. Cloudflare handles the public HTTPS endpoint and provides its edge protection.\n` +
             `• Nginx / Caddy: Forward port ${port} on this host with a valid SSL certificate.\n\n` +
-            `If you need help setting that up. check out: https://cyrus.admibot.xyz/docs/category/reverse-proxy`
+            `If you need help setting that up, check out: https://cyrus.admibot.xyz/docs/category/reverse-proxy`
         );
 
         displaySection('2. DATABASE CONFIGURATION');
@@ -375,10 +375,83 @@ async function runInteractiveSetup(envPath) {
 
         const emailEnabled = await askConfirm(rl, 'Enable transactional email delivery (Resend)?', false);
         let resendApiKey = '';
+        let resendFromDomain = '';
+
         if (emailEnabled) {
-            resendApiKey = await askValidated(rl, 'Resend API Key', '', (val) => {
-                if (!val.trim()) return 'Resend API Key is required when enabled';
-            });
+            let resendDomainsList = [];
+            while (true) {
+                resendApiKey = await askValidated(rl, 'Resend API Key', '', (val) => {
+                    if (!val.trim()) return 'Resend API Key is required when enabled';
+                });
+
+                const spinner = createSpinner('Validating Resend API Key...');
+                spinner.start();
+
+                try {
+                    const res = await fetch('https://api.resend.com/domains', {
+                        method: 'GET',
+                        headers: {
+                            Authorization: `Bearer ${resendApiKey.trim()}`,
+                            'User-Agent': 'Cyrus Panel/1.0'
+                        }
+                    });
+
+                    if (res.ok) {
+                        const data = await res.json().catch(() => ({}));
+                        resendDomainsList = Array.isArray(data.data) ? data.data : (Array.isArray(data) ? data : []);
+                        spinner.succeed('Resend API key verified successfully!');
+                        break;
+                    } else {
+                        const errData = await res.json().catch(() => ({}));
+                        spinner.fail(`Invalid Resend API Key: ${errData.message || 'Authentication failed'}`);
+                        const retry = await askConfirm(rl, 'Would you like to re-enter the Resend API Key?', true);
+                        if (!retry) {
+                            resendApiKey = '';
+                            break;
+                        }
+                    }
+                } catch (err) {
+                    spinner.fail(`Could not connect to Resend API: ${err.message}`);
+                    const retry = await askConfirm(rl, 'Would you like to re-enter the Resend API Key?', true);
+                    if (!retry) {
+                        resendApiKey = '';
+                        break;
+                    }
+                }
+            }
+
+            if (resendApiKey) {
+                const useDomain = await askConfirm(rl, 'Configure a custom verified sender domain in Resend?', false);
+                if (useDomain) {
+                    while (true) {
+                        const domainInput = await ask(rl, 'Enter Custom Sender Domain (e.g. yourdomain.com, or press Enter to skip)', '');
+                        if (!domainInput.trim()) break;
+
+                        const cleanDomain = domainInput.trim().toLowerCase();
+                        const matched = resendDomainsList.find(d => (d.name || '').toLowerCase() === cleanDomain);
+
+                        if (!matched) {
+                            console.log(chalk.red(`  └─ Domain "${cleanDomain}" was not found in your Resend account.`));
+                            const retry = await askConfirm(rl, 'Would you like to re-enter the domain?', true);
+                            if (!retry) break;
+                            continue;
+                        }
+
+                        if (matched.status !== 'verified') {
+                            console.log(chalk.yellow(`  └─ Domain "${cleanDomain}" is not verified yet (status: ${matched.status}).`));
+                            const proceedAnyway = await askConfirm(rl, 'Use this domain anyway?', false);
+                            if (proceedAnyway) {
+                                resendFromDomain = cleanDomain;
+                                break;
+                            }
+                        } else {
+                            resendFromDomain = cleanDomain;
+                            console.log(chalk.green(`  └─ Domain "${cleanDomain}" is verified and ready!`));
+                            break;
+                        }
+                    }
+                }
+            }
         }
 
         displaySection('7. BILLING & PAYMENTS');
@@ -407,9 +480,26 @@ async function runInteractiveSetup(envPath) {
         );
 
         let apiCallbackKey = '';
+        let externalCreditsStoreUrl = '';
+
         if (providerApiCallbackEnabled) {
             const autoCallbackKey = generateRandomSecret(24);
             apiCallbackKey = await ask(rl, 'API Callback Authentication Key', autoCallbackKey);
+
+            const configureStore = await askConfirm(rl, 'Configure an external credits store URL? (Optional)', false);
+            if (configureStore) {
+                externalCreditsStoreUrl = await askValidated(rl, 'External Credits Store URL', '', (val) => {
+                    if (!val.trim()) return 'Store URL cannot be empty if configured';
+                    try {
+                        const u = new URL(val.trim());
+                        if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+                            return 'URL must start with http:// or https://';
+                        }
+                    } catch {
+                        return 'Please enter a valid HTTP or HTTPS URL (e.g. https://store.example.com)';
+                    }
+                });
+            }
         }
 
         const envContent = `# Cyrus Panel Configuration
@@ -437,6 +527,7 @@ RECAPTCHA_PUBLIC_KEY=${recaptchaPublicKey.trim()}
 RECAPTCHA_SECRET_KEY=${recaptchaSecretKey.trim()}
 EMAIL_ENABLED=${emailEnabled}
 RESEND_API_KEY=${resendApiKey.trim()}
+RESEND_FROM_DOMAIN=${resendFromDomain.trim()}
 
 # Payments
 PAYMENTS_ENABLED=${paymentsEnabled}
@@ -447,6 +538,7 @@ OXAPAY_API_KEY=${oxaPayApiKey.trim()}
 # Callback
 PROVIDER_API_CALLBACK_ENABLED=${providerApiCallbackEnabled}
 API_CALLBACK_KEY=${apiCallbackKey.trim()}
+EXTERNAL_CREDITS_STORE_URL=${externalCreditsStoreUrl.trim()}
 
 # Setup Marker
 installationCompleted=true
