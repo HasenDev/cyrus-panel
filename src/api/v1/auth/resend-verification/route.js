@@ -86,7 +86,7 @@ module.exports = {
             });
 
             const env = getEnv();
-            const baseUrl = env.APP_URL || env.PANEL_URL;
+            const baseUrl = env.API_URL || env.APP_URL || env.PANEL_URL || process.env.API_URL || process.env.APP_URL || process.env.PANEL_URL || (req.headers.origin ? req.headers.origin : (req.headers.host ? `${req.protocol || 'http'}://${req.headers.host}` : null));
             if (!baseUrl) {
                 return reply.status(500).send({ error: 'Server is not properly configured. Please contact an administrator.' });
             }
