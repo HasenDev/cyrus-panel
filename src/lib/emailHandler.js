@@ -187,6 +187,14 @@ function generateEmailTemplate({
     `;
 }
 
+function resolveSenderEmail(env) {
+    if (env.RESEND_FROM_DOMAIN && env.RESEND_FROM_DOMAIN.trim()) {
+        const dom = env.RESEND_FROM_DOMAIN.trim();
+        return dom.includes('@') ? dom : `noreply@${dom}`;
+    }
+    return env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+}
+
 async function sendEmail({ to, subject, html, options = {} }) {
     const env = getEnv();
     const isEnabled = env.EMAIL_ENABLED === 'true';
@@ -200,10 +208,10 @@ async function sendEmail({ to, subject, html, options = {} }) {
     try {
         const resend = new Resend(apiKey);
         const panelName = env.PANEL_NAME || 'Cyrus Panel';
-        const fromEmail = env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
-        const sender = `${panelName} <${fromEmail}>`;
+        let fromEmail = resolveSenderEmail(env);
+        let sender = `${panelName} <${fromEmail}>`;
 
-        const data = await resend.emails.send({
+        let data = await resend.emails.send({
             from: sender,
             to,
             subject,
@@ -211,7 +219,35 @@ async function sendEmail({ to, subject, html, options = {} }) {
             ...options
         });
 
-        return { success: true, data };
+        if (data && data.error) {
+            const errStr = JSON.stringify(data.error).toLowerCase();
+            if (
+                errStr.includes('not verified') ||
+                errStr.includes('validation_error') ||
+                data.error.name === 'validation_error'
+            ) {
+                if (env.RESEND_FROM_DOMAIN) {
+                    console.warn('[EmailHandler] Configured custom domain failed verification. Retrying with default fallback...');
+                    fromEmail = env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+                    sender = `${panelName} <${fromEmail}>`;
+
+                    const retryData = await resend.emails.send({
+                        from: sender,
+                        to,
+                        subject,
+                        html,
+                        ...options
+                    });
+
+                    if (!retryData.error) {
+                        return { success: true, data: retryData.data || retryData };
+                    }
+                }
+            }
+            return { success: false, error: data.error.message || data.error };
+        }
+
+        return { success: true, data: data.data || data };
     } catch (err) {
         console.error('[EmailHandler Error]:', err);
         return { success: false, error: err.message || err };
