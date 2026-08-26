@@ -3,6 +3,8 @@ const { authenticate } = require('../../../../../lib/auth');
 const { getPermissions } = require('../../../../../lib/getPermissions');
 const { checkRateLimit } = require('../../../../../lib/rateLimit');
 
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
 module.exports = {
     GET: async (req, reply) => {
         try {
@@ -30,8 +32,17 @@ module.exports = {
             const egg = await db.collection('eggs').findOne({ id: server.eggId });
             const allocations = await db.collection('allocations').find({ nodeId: server.nodeId }).toArray();
 
-            let liveStatus = server.installing ? 'installing' : (server.status || 'offline');
-            if (!server.installing && node) {
+            const installTime = server.installationStartedTimestamp ? Number(server.installationStartedTimestamp) : (server.createdAt ? new Date(server.createdAt).getTime() : 0);
+            const isInstallTimedOut = Boolean(server.installing && installTime && (Date.now() - installTime > ONE_HOUR_MS));
+            const effectiveInstalling = Boolean(server.installing && !isInstallTimedOut);
+
+            let liveStatus = isInstallTimedOut
+                ? 'installation_failed'
+                : effectiveInstalling
+                ? 'installing'
+                : (server.status || 'offline');
+
+            if (!effectiveInstalling && !isInstallTimedOut && node) {
                 try {
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 2000);
@@ -54,6 +65,7 @@ module.exports = {
             return reply.status(200).send({
                 server: {
                     ...server,
+                    installing: effectiveInstalling,
                     maxAllocations: Math.min(50, Math.max(0, parseInt(server.maxAllocations, 10) || 0)),
                     status: liveStatus
                 },
@@ -106,7 +118,10 @@ module.exports = {
             const existingServer = await db.collection('servers').findOne({ id });
             if (!existingServer) return reply.status(404).send({ error: 'Server not found.' });
 
-            if (existingServer.installing) {
+            const installTime = existingServer.installationStartedTimestamp ? Number(existingServer.installationStartedTimestamp) : (existingServer.createdAt ? new Date(existingServer.createdAt).getTime() : 0);
+            const isInstallTimedOut = Boolean(existingServer.installing && installTime && (Date.now() - installTime > ONE_HOUR_MS));
+
+            if (existingServer.installing && !isInstallTimedOut) {
                 return reply.status(400).send({ error: 'Configuration cannot be updated while server is installing.' });
             }
 
@@ -242,8 +257,7 @@ module.exports = {
                         signal: controller.signal
                     });
                     clearTimeout(timeoutId);
-                } catch {
-                }
+                } catch {}
             }
 
             await db.collection('allocations').updateMany(
@@ -283,6 +297,9 @@ module.exports = {
                     $set: {
                         installing: false,
                         status: isSuccess ? 'offline' : 'installation_failed'
+                    },
+                    $unset: {
+                        installationStartedTimestamp: ''
                     }
                 }
             );
