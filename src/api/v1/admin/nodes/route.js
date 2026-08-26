@@ -5,7 +5,7 @@ const { getPermissions } = require('../../../../lib/getPermissions');
 const { checkRateLimit } = require('../../../../lib/rateLimit');
 
 function generateNodeId() {
-    return 'node_' + Math.random().toString(36).substring(2, 9);
+    return 'node_' + crypto.randomBytes(8).toString('hex');
 }
 
 module.exports = {
