@@ -153,7 +153,13 @@ module.exports = {
             if (typeof body.panelName === 'string') envUpdates.PANEL_NAME = body.panelName.trim();
             if (typeof body.panelDescription === 'string') envUpdates.PANEL_DESCRIPTION = body.panelDescription.trim();
             if (typeof body.panelIcon === 'string') envUpdates.PANEL_ICON = body.panelIcon.trim();
-            if (typeof body.accentColor === 'string') envUpdates.ACCENT_COLOR = body.accentColor.trim();
+            if (typeof body.accentColor === 'string') {
+                const trimmedColor = body.accentColor.trim();
+                if (!/^#[0-9A-Fa-f]{6}$/.test(trimmedColor)) {
+                    return reply.status(400).send({ error: 'Accent color must be a valid hex color (e.g., #6366f1).' });
+                }
+                envUpdates.ACCENT_COLOR = trimmedColor;
+            }
             if (typeof body.recaptchaPublicKey === 'string') envUpdates.RECAPTCHA_PUBLIC_KEY = body.recaptchaPublicKey.trim();
             if (typeof body.recaptchaSecretKey === 'string') envUpdates.RECAPTCHA_SECRET_KEY = body.recaptchaSecretKey.trim();
             if (typeof body.recaptchaEnabled === 'boolean') envUpdates.RECAPTCHA_ENABLED = body.recaptchaEnabled ? 'true' : 'false';
