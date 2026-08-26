@@ -3,6 +3,8 @@ const { authenticate } = require('../../../../../lib/auth');
 const { checkRateLimit } = require('../../../../../lib/rateLimit');
 const { getUserServerPermissions } = require('../../../../../lib/serverPermissions');
 
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
 module.exports = {
   GET: async (req, reply) => {
     try {
@@ -35,9 +37,21 @@ module.exports = {
 
       const primaryAlloc = allocations.find(a => a.id === server.allocationId);
       const allocStr = primaryAlloc ? `${primaryAlloc.ip}:${primaryAlloc.port}` : '0.0.0.0:25565';
-      let liveStatus = server.installing ? 'installing' : (server.suspended ? 'suspended' : (server.status || 'offline'));
 
-      if (!server.installing && !server.suspended && node && !node.maintenanceMode) {
+      const isInstallTimedOut = Boolean(
+        server.installing &&
+        server.installationStartedTimestamp &&
+        (Date.now() - Number(server.installationStartedTimestamp) > ONE_HOUR_MS)
+      );
+      const effectiveInstalling = Boolean(server.installing && !isInstallTimedOut);
+
+      let liveStatus = isInstallTimedOut
+        ? 'installation_failed'
+        : effectiveInstalling
+        ? 'installing'
+        : (server.suspended ? 'suspended' : (server.status || 'offline'));
+
+      if (!effectiveInstalling && !isInstallTimedOut && !server.suspended && node && !node.maintenanceMode) {
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 2000);
@@ -94,7 +108,7 @@ module.exports = {
           cpu: server.cpu || 100,
           priceCredits: server.priceCredits || 0,
           maxAllocations: Math.min(50, Math.max(0, parseInt(server.maxAllocations, 10) || 0)),
-          installing: Boolean(server.installing),
+          installing: effectiveInstalling,
           suspended: Boolean(server.suspended),
           status: liveStatus,
           allocation: allocStr,
