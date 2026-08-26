@@ -346,7 +346,7 @@ async function runInteractiveSetup(envPath) {
         const panelDescription = await ask(rl, 'Panel Description', 'High-performance cloud compute and service management panel.');
         const panelIcon = await ask(rl, 'Panel Icon URL (Optional, press Enter for default)', '');
         const accentColor = await askValidated(rl, 'Panel Accent Color (Hex)', '#6366f1', (val) => {
-            if (val && !/^#[0-9A-Fa-f]{6}$/.test(val.trim())) return 'Must be a valid hex color (e.g. #6366f1)';
+            if (!val || !/^#[0-9A-Fa-f]{6}$/.test(val.trim())) return 'Must be a valid hex color (e.g. #6366f1)';
         });
         const defaultMaxDeployments = await askValidated(rl, 'Default Maximum Deployments per user', '10', (val) => {
             const n = parseInt(val, 10);
