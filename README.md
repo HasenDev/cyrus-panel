@@ -3,7 +3,7 @@
 > A modern, open-source hosting and store panel for managing clients, servers, nodes, containers, resources, and your entire infrastructure.
 
 <p align="center">
-  <img src="images/img1.png" alt="Cyrus Panel" width="900" style="border-radius: 16px;">
+  <img src="images/img2.png" alt="Cyrus Panel" width="900" style="border-radius: 16px;">
 </p>
 
 [![License](https://img.shields.io/github/license/HasenDev/cyrus-panel)](https://github.com/HasenDev/cyrus-panel/blob/main/LICENSE)
