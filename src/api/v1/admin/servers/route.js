@@ -61,8 +61,11 @@ module.exports = {
                 const node = nodes.find(n => n.id === s.nodeId);
                 const alloc = allocations.find(a => a.id === s.allocationId);
 
-                const installTime = s.installationStartedTimestamp ? Number(s.installationStartedTimestamp) : (s.createdAt ? new Date(s.createdAt).getTime() : 0);
-                const isInstallTimedOut = Boolean(s.installing && installTime && (Date.now() - installTime > ONE_HOUR_MS));
+                const isInstallTimedOut = Boolean(
+                    s.installing &&
+                    s.installationStartedTimestamp &&
+                    (Date.now() - Number(s.installationStartedTimestamp) > ONE_HOUR_MS)
+                );
                 const effectiveInstalling = Boolean(s.installing && !isInstallTimedOut);
 
                 let liveStatus = isInstallTimedOut ? 'installation_failed' : (effectiveInstalling ? 'installing' : (s.status || 'offline'));
