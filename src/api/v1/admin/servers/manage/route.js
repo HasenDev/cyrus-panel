@@ -32,8 +32,11 @@ module.exports = {
             const egg = await db.collection('eggs').findOne({ id: server.eggId });
             const allocations = await db.collection('allocations').find({ nodeId: server.nodeId }).toArray();
 
-            const installTime = server.installationStartedTimestamp ? Number(server.installationStartedTimestamp) : (server.createdAt ? new Date(server.createdAt).getTime() : 0);
-            const isInstallTimedOut = Boolean(server.installing && installTime && (Date.now() - installTime > ONE_HOUR_MS));
+            const isInstallTimedOut = Boolean(
+                server.installing &&
+                server.installationStartedTimestamp &&
+                (Date.now() - Number(server.installationStartedTimestamp) > ONE_HOUR_MS)
+            );
             const effectiveInstalling = Boolean(server.installing && !isInstallTimedOut);
 
             let liveStatus = isInstallTimedOut
@@ -69,9 +72,9 @@ module.exports = {
                     maxAllocations: Math.min(50, Math.max(0, parseInt(server.maxAllocations, 10) || 0)),
                     status: liveStatus
                 },
-                nodeName: node ? node.name : 'Unknown',
-                nestName: nest ? nest.name : 'Unknown',
-                eggName: egg ? egg.name : 'Unknown',
+                nodeName: node ? node.name : 'Unknown Node',
+                nestName: nest ? nest.name : 'Unknown Nest',
+                eggName: egg ? egg.name : 'Unknown Egg',
                 eggDockerImages: egg ? egg.docker_images : {},
                 eggVariables: egg ? egg.variables : [],
                 allocations
@@ -118,8 +121,11 @@ module.exports = {
             const existingServer = await db.collection('servers').findOne({ id });
             if (!existingServer) return reply.status(404).send({ error: 'Server not found.' });
 
-            const installTime = existingServer.installationStartedTimestamp ? Number(existingServer.installationStartedTimestamp) : (existingServer.createdAt ? new Date(existingServer.createdAt).getTime() : 0);
-            const isInstallTimedOut = Boolean(existingServer.installing && installTime && (Date.now() - installTime > ONE_HOUR_MS));
+            const isInstallTimedOut = Boolean(
+                existingServer.installing &&
+                existingServer.installationStartedTimestamp &&
+                (Date.now() - Number(existingServer.installationStartedTimestamp) > ONE_HOUR_MS)
+            );
 
             if (existingServer.installing && !isInstallTimedOut) {
                 return reply.status(400).send({ error: 'Configuration cannot be updated while server is installing.' });
