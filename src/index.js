@@ -231,7 +231,7 @@ const getMimeType = (filePath) => {
 };
 
 const applyHtmlHeaders = (reply) => {
-    reply.header('X-Frame-Options', 'SAMEORIGIN');
+    reply.header('X-Frame-Options', 'DENY');
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
     reply.header('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
@@ -249,7 +249,7 @@ const applyHtmlHeaders = (reply) => {
             "object-src 'none';",
             "base-uri 'self';",
             "form-action 'self' https: http:;",
-            "frame-ancestors 'self' https: http:;"
+            "frame-ancestors 'none';"
         ].join(' ')
     );
     reply.header('X-Robots-Tag', 'index, follow, all');
@@ -367,6 +367,22 @@ async function start() {
 
     try {
         await connectDB();
+        fastify.addHook('onRequest', async (req, reply) => {
+            reply.header('X-Frame-Options', 'DENY');
+            reply.header('Content-Security-Policy', "frame-ancestors 'none';");
+        });
+
+        fastify.addHook('onSend', async (request, reply, payload) => {
+            reply.header('X-Frame-Options', 'DENY');
+            const csp = reply.getHeader('content-security-policy');
+            if (!csp) {
+                reply.header('Content-Security-Policy', "frame-ancestors 'none';");
+            } else if (typeof csp === 'string' && !csp.includes('frame-ancestors')) {
+                const cleaned = csp.trim().replace(/;$/, '');
+                reply.header('Content-Security-Policy', `${cleaned}; frame-ancestors 'none';`);
+            }
+            return payload;
+        });
 
         await fastify.register(require('fastify-raw-body'), {
             field: 'rawBody',
@@ -424,7 +440,8 @@ async function start() {
                 };
                 set('Content-Disposition', 'inline');
                 set('X-Content-Type-Options', 'nosniff');
-                set('Content-Security-Policy', "default-src 'none'; sandbox;");
+                set('X-Frame-Options', 'DENY');
+                set('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; sandbox;");
             }
         });
 
