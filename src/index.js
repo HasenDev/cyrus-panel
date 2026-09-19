@@ -1,6 +1,28 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const Module = require('module');
+
+const originalLoad = Module._load;
+function fallbackContentDisposition(filename, options) {
+    const opts = options || {};
+    const type = opts.type || 'attachment';
+    if (!filename) return type;
+    const basename = path.basename(filename);
+    return `${type}; filename="${basename.replace(/"/g, '\\"')}"`;
+}
+fallbackContentDisposition.parse = () => ({ type: 'attachment', parameters: {} });
+fallbackContentDisposition.format = () => 'attachment';
+fallbackContentDisposition.create = fallbackContentDisposition;
+fallbackContentDisposition.default = fallbackContentDisposition;
+
+Module._load = function (request, parent, isMain) {
+    if (typeof request === 'string' && (request === 'content-disposition' || request.includes('content-disposition'))) {
+        return fallbackContentDisposition;
+    }
+    return originalLoad.apply(this, arguments);
+};
+
 const dotenv = require('dotenv');
 const envPath = path.resolve(__dirname, '../.env');
 if (fs.existsSync(envPath)) {
@@ -367,6 +389,7 @@ async function start() {
 
     try {
         await connectDB();
+
         fastify.addHook('onRequest', async (req, reply) => {
             reply.header('X-Frame-Options', 'DENY');
             reply.header('Content-Security-Policy', "frame-ancestors 'none';");
@@ -430,20 +453,41 @@ async function start() {
             }
         });
 
-        await fastify.register(require('@fastify/static'), {
-            root: [uploadDir, cacheDir],
-            setHeaders: (res) => {
-                const set = (k, v) => {
-                    if (typeof res.setHeader === 'function') res.setHeader(k, v);
-                    else if (typeof res.header === 'function') res.header(k, v);
-                    else if (res.raw && typeof res.raw.setHeader === 'function') res.raw.setHeader(k, v);
-                };
-                set('Content-Disposition', 'inline');
-                set('X-Content-Type-Options', 'nosniff');
-                set('X-Frame-Options', 'DENY');
-                set('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; sandbox;");
+        try {
+            let staticPlugin = require('@fastify/static');
+            if (staticPlugin && staticPlugin.default) {
+                staticPlugin = staticPlugin.default;
             }
-        });
+            await fastify.register(staticPlugin, {
+                root: [uploadDir, cacheDir],
+                setHeaders: (res) => {
+                    const set = (k, v) => {
+                        if (typeof res.setHeader === 'function') res.setHeader(k, v);
+                        else if (typeof res.header === 'function') res.header(k, v);
+                        else if (res.raw && typeof res.raw.setHeader === 'function') res.raw.setHeader(k, v);
+                    };
+                    set('Content-Disposition', 'inline');
+                    set('X-Content-Type-Options', 'nosniff');
+                    set('X-Frame-Options', 'DENY');
+                    set('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; sandbox;");
+                }
+            });
+        } catch (err) {
+            try {
+                fastify.decorateReply('sendFile', function (filePath, rootDir) {
+                    const fullPath = rootDir ? path.resolve(rootDir, filePath) : path.resolve(filePath);
+                    if (!fs.existsSync(fullPath)) {
+                        return this.code(404).send({ error: 'File not found' });
+                    }
+                    this.type(getMimeType(fullPath));
+                    this.header('Content-Disposition', 'inline');
+                    this.header('X-Content-Type-Options', 'nosniff');
+                    this.header('X-Frame-Options', 'DENY');
+                    this.header('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; sandbox;");
+                    return this.send(fs.createReadStream(fullPath));
+                });
+            } catch {}
+        }
 
         fastify.get('/cdn/*', async (req, reply) => {
             try {
