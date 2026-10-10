@@ -23,23 +23,25 @@ module.exports = {
             const formattedTxns = transactions.map(t => ({
                 id: t.id || t._id.toString(),
                 date: t.createdAt ? new Date(t.createdAt).toISOString().replace('T', ' ').substring(0, 16) : 'N/A',
-                credits: t.credits || 0,
-                amountUSD: t.amountUSD || 0,
+                credits: typeof t.credits === 'number' ? t.credits : 0,
+                amountUSD: typeof t.amountUSD === 'number' ? t.amountUSD : 0,
                 type: t.type || 'payment',
                 description: t.description || '',
                 status: t.status || 'Completed'
             }));
-
             const paymentsEnabled = process.env.PAYMENTS_ENABLED === 'true';
             const providerOxapayEnabled = process.env.PROVIDER_OXAPAY_ENABLED === 'true' && !!process.env.OXAPAY_API_KEY;
-
-            const pricePer10 = parseFloat(process.env.CREDITS_PRICE_PER_10 || '0.20');
-            const creditsPerDollar = Math.floor(10 / (pricePer10 > 0 ? pricePer10 : 0.20));
+            const externalCreditsStoreUrl = process.env.EXTERNAL_CREDITS_STORE_URL?.trim() || null;
+            const parsedPricePer10 = parseFloat(process.env.CREDITS_PRICE_PER_10 || '0.20');
+            const pricePer10 = !isNaN(parsedPricePer10) && parsedPricePer10 > 0 ? parsedPricePer10 : 0.20;
+            const creditsPerDollar = Math.floor(10 / pricePer10);
+            const userCredits = typeof user.credits === 'number' ? user.credits : 0;
 
             return reply.status(200).send({
-                credits: user.credits || 0,
+                credits: userCredits,
                 paymentsEnabled,
                 providerOxapayEnabled,
+                externalCreditsStoreUrl,
                 creditsPricePer10: pricePer10,
                 creditsPerDollar,
                 transactions: formattedTxns
