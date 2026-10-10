@@ -37,6 +37,7 @@ module.exports = {
             const creditsPerDollar = Math.floor(10 / pricePer10);
             const userCredits = typeof user.credits === 'number' ? user.credits : 0;
 
+            
             return reply.status(200).send({
                 credits: userCredits,
                 paymentsEnabled,
